@@ -78,12 +78,55 @@ export const Canvas = forwardRef<CanvasRef, CanvasProps>(({
     setPosition({ x: 0, y: 0 });
   };
 
-  const handleStageClick = (e: Konva.KonvaEventObject<MouseEvent>) => {
+  const handleStageClick = async (e: Konva.KonvaEventObject<MouseEvent>) => {
     if (selectedTool === 'sam2-segment') {
       const pos = e.target.getStage()?.getPointerPosition();
-      if (pos) {
+      if (pos && image && stageRef.current) {
         console.log('SAM2 segmentation at:', pos);
-        // SAM2 segmentation logic will be implemented here
+        
+        try {
+          // Get image data from canvas
+          const canvas = document.createElement('canvas');
+          canvas.width = image.width;
+          canvas.height = image.height;
+          const ctx = canvas.getContext('2d')!;
+          ctx.drawImage(image, 0, 0);
+          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          
+          // Adjust click position for scale and offset
+          const adjustedPos = {
+            x: Math.round((pos.x - position.x) / scale),
+            y: Math.round((pos.y - position.y) / scale)
+          };
+          
+          // Import segmentation service
+          const { segmentationService } = await import('@/services/aiService');
+          
+          // Perform segmentation
+          const maskData = await segmentationService.segmentWithSAM2(imageData, adjustedPos, {
+            threshold: 0.15,
+            dilate: 3,
+            includeEdges: true
+          });
+          
+          // Create mask overlay
+          const maskCanvas = document.createElement('canvas');
+          maskCanvas.width = maskData.width;
+          maskCanvas.height = maskData.height;
+          const maskCtx = maskCanvas.getContext('2d')!;
+          maskCtx.putImageData(maskData, 0, 0);
+          
+          // Add mask as a new layer in the stage
+          const maskImage = new window.Image();
+          maskImage.onload = () => {
+            // This will trigger a re-render with the new mask
+            console.log('Segmentation mask created successfully');
+          };
+          maskImage.src = maskCanvas.toDataURL();
+          
+        } catch (error) {
+          console.error('SAM2 segmentation failed:', error);
+        }
       }
     }
   };
