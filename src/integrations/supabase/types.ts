@@ -14,6 +14,36 @@ export type Database = {
   }
   public: {
     Tables: {
+      api_configurations: {
+        Row: {
+          api_key_encrypted: string
+          created_at: string
+          id: string
+          model_settings: Json | null
+          provider: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          api_key_encrypted: string
+          created_at?: string
+          id?: string
+          model_settings?: Json | null
+          provider: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          api_key_encrypted?: string
+          created_at?: string
+          id?: string
+          model_settings?: Json | null
+          provider?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       api_keys: {
         Row: {
           created_at: string | null
@@ -134,6 +164,48 @@ export type Database = {
           src_image_uri?: string
           status?: string | null
           strength?: number | null
+        }
+        Relationships: []
+      }
+      inpainting_jobs: {
+        Row: {
+          created_at: string
+          id: string
+          mask_url: string
+          model_settings: Json | null
+          original_image_url: string
+          prompt: string
+          provider: string
+          result_url: string | null
+          status: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          mask_url: string
+          model_settings?: Json | null
+          original_image_url: string
+          prompt: string
+          provider: string
+          result_url?: string | null
+          status?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          mask_url?: string
+          model_settings?: Json | null
+          original_image_url?: string
+          prompt?: string
+          provider?: string
+          result_url?: string | null
+          status?: string | null
+          updated_at?: string
+          user_id?: string
         }
         Relationships: []
       }
@@ -467,6 +539,42 @@ export type Database = {
           metadata?: Json | null
           session_key?: string
           user_id?: string | null
+        }
+        Relationships: []
+      }
+      segmentation_jobs: {
+        Row: {
+          click_points: Json
+          created_at: string
+          id: string
+          image_url: string
+          mask_url: string | null
+          settings: Json | null
+          status: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          click_points: Json
+          created_at?: string
+          id?: string
+          image_url: string
+          mask_url?: string | null
+          settings?: Json | null
+          status?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          click_points?: Json
+          created_at?: string
+          id?: string
+          image_url?: string
+          mask_url?: string | null
+          settings?: Json | null
+          status?: string | null
+          updated_at?: string
+          user_id?: string
         }
         Relationships: []
       }
