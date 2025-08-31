@@ -29,6 +29,7 @@ interface ToolPanelProps {
   selectedTool: string;
   onToolSelect: (toolId: string) => void;
   onShowAI: () => void;
+  onShowLayers: () => void;
 }
 
 const tools: Tool[] = [
@@ -79,7 +80,8 @@ const tools: Tool[] = [
 export const ToolPanel: React.FC<ToolPanelProps> = ({
   selectedTool,
   onToolSelect,
-  onShowAI
+  onShowAI,
+  onShowLayers
 }) => {
   const [activeCategory, setActiveCategory] = useState<string>('selection');
 
@@ -158,6 +160,7 @@ export const ToolPanel: React.FC<ToolPanelProps> = ({
           
           <Button
             variant="outline"
+            onClick={onShowLayers}
             className="w-full justify-start hover:border-accent hover:shadow-glow-accent transition-smooth"
           >
             <Layers className="w-4 h-4 mr-2" />

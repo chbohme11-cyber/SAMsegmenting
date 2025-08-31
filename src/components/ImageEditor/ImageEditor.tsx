@@ -5,7 +5,10 @@ import { ToolPanel } from './ToolPanel';
 import { AIPanel } from './AIPanel';
 import { HeaderBar } from './HeaderBar';
 import { LayersPanel } from './LayersPanel';
+import { SegmentationPanel } from './SegmentationPanel';
 import { APIKeyDialog } from './APIKeyDialog';
+import { Button } from '@/components/ui/button';
+import { X } from 'lucide-react';
 import { toast } from 'sonner';
 import { useEditorStore } from '@/lib/editorStore';
 import { createAIService, segmentationService } from '@/services/aiService';
@@ -33,6 +36,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = () => {
 
   const [showAIPanel, setShowAIPanel] = useState(false);
   const [showLayersPanel, setShowLayersPanel] = useState(false);
+  const [showSegmentationPanel, setShowSegmentationPanel] = useState(false);
   const [showAPIDialog, setShowAPIDialog] = useState(false);
   const canvasRef = useRef<CanvasRef>(null);
 
@@ -49,6 +53,11 @@ export const ImageEditor: React.FC<ImageEditorProps> = () => {
 
   const handleToolSelect = useCallback((toolId: string) => {
     setSelectedTool(toolId);
+    
+    // Show segmentation panel for SAM2 tools
+    if (toolId === 'sam2-segment') {
+      setShowSegmentationPanel(true);
+    }
     
     // Check if API keys are needed for AI tools
     if ((['sam2-segment', 'inpaint', 'enhance'].includes(toolId)) && 
@@ -136,6 +145,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = () => {
             selectedTool={selectedTool}
             onToolSelect={handleToolSelect}
             onShowAI={() => setShowAIPanel(true)}
+            onShowLayers={() => setShowLayersPanel(true)}
           />
         </motion.div>
 
@@ -151,6 +161,15 @@ export const ImageEditor: React.FC<ImageEditorProps> = () => {
 
         {/* Right Panels */}
         <div className="flex">
+          {/* Segmentation Panel */}
+          {showSegmentationPanel && (
+            <SegmentationPanel
+              onClose={() => setShowSegmentationPanel(false)}
+              selectedTool={selectedTool}
+              onToolChange={handleToolSelect}
+            />
+          )}
+          
           {/* Layers Panel */}
           {showLayersPanel && (
             <motion.div
@@ -158,6 +177,19 @@ export const ImageEditor: React.FC<ImageEditorProps> = () => {
               animate={{ x: 0 }}
               className="w-80 bg-panel-bg border-l border-panel-border overflow-y-auto"
             >
+              <div className="p-4 border-b border-panel-border">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-lg font-semibold">Layers ({layers.length})</h2>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setShowLayersPanel(false)}
+                    className="h-8 w-8 p-0 hover:bg-secondary"
+                  >
+                    <X className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
               <LayersPanel
                 layers={layers}
                 activeLayerId={activeLayerId || ''}
@@ -178,6 +210,19 @@ export const ImageEditor: React.FC<ImageEditorProps> = () => {
               animate={{ x: 0 }}
               className="w-96 bg-panel-bg border-l border-panel-border overflow-y-auto"
             >
+              <div className="p-4 border-b border-panel-border">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-lg font-semibold">AI Generator</h2>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setShowAIPanel(false)}
+                    className="h-8 w-8 p-0 hover:bg-secondary"
+                  >
+                    <X className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
               <AIPanel 
                 onClose={() => setShowAIPanel(false)}
                 onGenerate={handleAIGenerate}

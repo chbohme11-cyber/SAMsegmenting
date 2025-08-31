@@ -52,22 +52,7 @@ export const LayersPanel: React.FC<LayersPanelProps> = ({
   ];
 
   return (
-    <div className="p-4 space-y-4">
-      <div className="flex items-center justify-between">
-        <h3 className="font-semibold flex items-center gap-2">
-          <LayersIcon className="w-4 h-4" />
-          Layers
-        </h3>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={onLayerAdd}
-          className="hover:border-accent transition-smooth"
-        >
-          <Plus className="w-4 h-4" />
-        </Button>
-      </div>
-
+    <div className="space-y-4">
       <div className="space-y-2">
         {layers.map((layer, index) => (
           <motion.div

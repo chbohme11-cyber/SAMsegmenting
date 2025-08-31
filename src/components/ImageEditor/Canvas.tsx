@@ -4,6 +4,8 @@ import { Stage, Layer, Image as KonvaImage, Rect } from 'react-konva';
 import { Button } from '@/components/ui/button';
 import { ZoomIn, ZoomOut, RotateCcw, Move } from 'lucide-react';
 import Konva from 'konva';
+import { useEditorStore } from '@/lib/editorStore';
+import { toast } from 'sonner';
 
 interface CanvasProps {
   currentImage: string | null;
@@ -26,6 +28,7 @@ export const Canvas = forwardRef<CanvasRef, CanvasProps>(({
   const [stageSize, setStageSize] = useState({ width: 800, height: 600 });
   const [scale, setScale] = useState(1);
   const [position, setPosition] = useState({ x: 0, y: 0 });
+  const { setProcessing, setMask, addLayer } = useEditorStore();
 
   useImperativeHandle(ref, () => ({
     getCanvas: () => stageRef.current,
@@ -49,6 +52,19 @@ export const Canvas = forwardRef<CanvasRef, CanvasProps>(({
 
     handleResize();
     window.addEventListener('resize', handleResize);
+    
+    // Initialize SAM2 when component mounts
+    const initializeSAM2 = async () => {
+      try {
+        const { segmentationService } = await import('@/services/aiService');
+        await segmentationService.initializeSAM2();
+        console.log('SAM2 initialized successfully');
+      } catch (error) {
+        console.warn('Failed to initialize SAM2:', error);
+      }
+    };
+    initializeSAM2();
+    
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
@@ -84,6 +100,10 @@ export const Canvas = forwardRef<CanvasRef, CanvasProps>(({
       if (pos && image && stageRef.current) {
         console.log('SAM2 segmentation at:', pos);
         
+        // Set processing state
+        setProcessing(true, 'Segmenting with SAM2...');
+        toast.info('Starting SAM2 segmentation...');
+        
         try {
           // Get image data from canvas
           const canvas = document.createElement('canvas');
@@ -99,6 +119,10 @@ export const Canvas = forwardRef<CanvasRef, CanvasProps>(({
             y: Math.round((pos.y - position.y) / scale)
           };
           
+          // Ensure position is within bounds
+          adjustedPos.x = Math.max(0, Math.min(adjustedPos.x, image.width - 1));
+          adjustedPos.y = Math.max(0, Math.min(adjustedPos.y, image.height - 1));
+          
           // Import segmentation service
           const { segmentationService } = await import('@/services/aiService');
           
@@ -109,23 +133,31 @@ export const Canvas = forwardRef<CanvasRef, CanvasProps>(({
             includeEdges: true
           });
           
-          // Create mask overlay
+          // Store mask for future use
+          setMask(maskData);
+          
+          // Create mask overlay and add as layer
           const maskCanvas = document.createElement('canvas');
           maskCanvas.width = maskData.width;
           maskCanvas.height = maskData.height;
           const maskCtx = maskCanvas.getContext('2d')!;
           maskCtx.putImageData(maskData, 0, 0);
           
-          // Add mask as a new layer in the stage
-          const maskImage = new window.Image();
-          maskImage.onload = () => {
-            // This will trigger a re-render with the new mask
-            console.log('Segmentation mask created successfully');
-          };
-          maskImage.src = maskCanvas.toDataURL();
+          // Add as new layer
+          addLayer({
+            name: 'SAM2 Mask',
+            thumbnail: maskCanvas.toDataURL(),
+            imageData: maskData
+          });
+          
+          toast.success('Object segmented successfully!');
+          console.log('SAM2 segmentation completed');
           
         } catch (error) {
           console.error('SAM2 segmentation failed:', error);
+          toast.error('Segmentation failed. Please try again.');
+        } finally {
+          setProcessing(false);
         }
       }
     }
