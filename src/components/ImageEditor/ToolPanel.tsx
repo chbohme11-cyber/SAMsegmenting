@@ -40,13 +40,8 @@ const tools: Tool[] = [
     description: 'Select and move objects',
     category: 'selection'
   },
-  {
-    id: 'sam2-segment',
-    name: 'SAM2 Segment',
-    icon: Target,
-    description: 'AI-powered object segmentation',
-    category: 'selection'
-  },
+    { id: 'sam2-segment', name: 'SAM2 Points', icon: Target, description: 'Add positive (click) / negative (shift+click) points', category: 'selection' },
+    { id: 'sam2-run', name: 'Run SAM2', icon: Scissors, description: 'Run segmentation with selected points', category: 'selection' },
   {
     id: 'magic-cut',
     name: 'Magic Cut',
@@ -178,24 +173,43 @@ export const ToolPanel: React.FC<ToolPanelProps> = ({
         </div>
       </div>
 
-      {selectedTool === 'sam2-segment' && (
+      {(selectedTool === 'sam2-segment' || selectedTool === 'sam2-run') && (
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           className="p-4 bg-card rounded-lg border"
         >
           <h4 className="font-semibold mb-2">SAM2 Segmentation</h4>
-          <p className="text-sm text-muted-foreground mb-3">
-            Click on any object to automatically segment it with Meta's SAM2 model.
-          </p>
+          {selectedTool === 'sam2-segment' ? (
+            <div>
+              <p className="text-sm text-muted-foreground mb-3">
+                Click to add <span className="text-green-500 font-medium">positive points</span> (include area)<br />
+                <span className="text-red-500 font-medium">Shift+Click</span> to add negative points (exclude area)
+              </p>
+              <div className="flex gap-2 mb-3">
+                <div className="flex items-center gap-1">
+                  <div className="w-3 h-3 bg-green-500 rounded-full" />
+                  <span className="text-xs">Include</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <div className="w-3 h-3 bg-red-500 rounded-full" />
+                  <span className="text-xs">Exclude</span>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground mb-3">
+              Run segmentation with the points you've added. This will create separate layers for the selected object and background.
+            </p>
+          )}
           <div className="space-y-2">
             <div className="flex justify-between text-sm">
-              <span>Precision:</span>
-              <Badge variant="secondary">High</Badge>
+              <span>Model:</span>
+              <Badge variant="secondary">SAM2</Badge>
             </div>
             <div className="flex justify-between text-sm">
-              <span>Speed:</span>
-              <Badge variant="secondary">Fast</Badge>
+              <span>Quality:</span>
+              <Badge variant="secondary">High</Badge>
             </div>
           </div>
         </motion.div>

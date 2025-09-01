@@ -289,6 +289,8 @@ export class SegmentationService {
       includeEdges?: boolean;
       threshold?: number;
       dilate?: number;
+      positivePoints?: Array<{ x: number; y: number; type: string }>;
+      negativePoints?: Array<{ x: number; y: number; type: string }>;
     } = {}
   ): Promise<ImageData> {
     const { includeEdges = true, threshold = 0.5, dilate = 2 } = options;

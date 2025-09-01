@@ -1,8 +1,8 @@
 import { forwardRef, useEffect, useRef, useState, useImperativeHandle } from 'react';
 import { motion } from 'framer-motion';
-import { Stage, Layer, Image as KonvaImage, Rect } from 'react-konva';
+import { Stage, Layer, Image as KonvaImage, Rect, Circle } from 'react-konva';
 import { Button } from '@/components/ui/button';
-import { ZoomIn, ZoomOut, RotateCcw, Move } from 'lucide-react';
+import { ZoomIn, ZoomOut, RotateCcw, Move, Plus, Minus } from 'lucide-react';
 import Konva from 'konva';
 import { useEditorStore } from '@/lib/editorStore';
 import { toast } from 'sonner';
@@ -25,10 +25,20 @@ export const Canvas = forwardRef<CanvasRef, CanvasProps>(({
 }, ref) => {
   const stageRef = useRef<Konva.Stage>(null);
   const [image, setImage] = useState<HTMLImageElement | null>(null);
+  const [layerImages, setLayerImages] = useState<{[key: string]: HTMLImageElement}>({});
   const [stageSize, setStageSize] = useState({ width: 800, height: 600 });
   const [scale, setScale] = useState(1);
   const [position, setPosition] = useState({ x: 0, y: 0 });
-  const { setProcessing, setMask, addLayer } = useEditorStore();
+  const [samPoints, setSamPoints] = useState<{x: number, y: number, type: 'positive' | 'negative'}[]>([]);
+  const { 
+    setProcessing, 
+    setMask, 
+    addLayer, 
+    layers, 
+    activeLayerId, 
+    updateLayer,
+    removeLayer 
+  } = useEditorStore();
 
   useImperativeHandle(ref, () => ({
     getCanvas: () => stageRef.current,
@@ -87,6 +97,42 @@ export const Canvas = forwardRef<CanvasRef, CanvasProps>(({
     }
   }, [currentImage, stageSize]);
 
+  // Load layer images when layers change
+  useEffect(() => {
+    const loadLayerImages = async () => {
+      const newLayerImages: {[key: string]: HTMLImageElement} = {};
+      
+      for (const layer of layers) {
+        if (layer.imageData) {
+          // Convert ImageData to canvas then to image
+          const canvas = document.createElement('canvas');
+          canvas.width = layer.imageData.width;
+          canvas.height = layer.imageData.height;
+          const ctx = canvas.getContext('2d')!;
+          ctx.putImageData(layer.imageData, 0, 0);
+          
+          const img = new window.Image();
+          await new Promise((resolve) => {
+            img.onload = resolve;
+            img.src = canvas.toDataURL();
+          });
+          newLayerImages[layer.id] = img;
+        } else if (layer.thumbnail && layer.id !== 'background') {
+          const img = new window.Image();
+          await new Promise((resolve) => {
+            img.onload = resolve;
+            img.src = layer.thumbnail;
+          });
+          newLayerImages[layer.id] = img;
+        }
+      }
+      
+      setLayerImages(newLayerImages);
+    };
+    
+    loadLayerImages();
+  }, [layers]);
+
   const handleZoomIn = () => setScale(prev => Math.min(prev * 1.2, 5));
   const handleZoomOut = () => setScale(prev => Math.max(prev / 1.2, 0.1));
   const handleReset = () => {
@@ -95,72 +141,153 @@ export const Canvas = forwardRef<CanvasRef, CanvasProps>(({
   };
 
   const handleStageClick = async (e: Konva.KonvaEventObject<MouseEvent>) => {
+    const pos = e.target.getStage()?.getPointerPosition();
+    if (!pos || !image || !stageRef.current) return;
+
+    // Adjust click position for scale and offset
+    const adjustedPos = {
+      x: Math.round((pos.x - position.x) / scale),
+      y: Math.round((pos.y - position.y) / scale)
+    };
+    
+    // Ensure position is within bounds
+    adjustedPos.x = Math.max(0, Math.min(adjustedPos.x, image.width - 1));
+    adjustedPos.y = Math.max(0, Math.min(adjustedPos.y, image.height - 1));
+
     if (selectedTool === 'sam2-segment') {
-      const pos = e.target.getStage()?.getPointerPosition();
-      if (pos && image && stageRef.current) {
-        console.log('SAM2 segmentation at:', pos);
+      // Add point for SAM2 segmentation
+      const isShiftPressed = e.evt.shiftKey;
+      const pointType = isShiftPressed ? 'negative' : 'positive';
+      
+      setSamPoints(prev => [...prev, { 
+        x: adjustedPos.x, 
+        y: adjustedPos.y, 
+        type: pointType 
+      }]);
+      
+      toast.info(`Added ${pointType} point. ${isShiftPressed ? 'Shift+' : ''}Click to add points, then run segmentation.`);
+      
+    } else if (selectedTool === 'sam2-run') {
+      if (samPoints.length === 0) {
+        toast.error('Please add some points first by using the SAM2 Segment tool.');
+        return;
+      }
+      
+      console.log('Running SAM2 segmentation with points:', samPoints);
+      
+      // Set processing state
+      setProcessing(true, 'Segmenting with SAM2...');
+      toast.info('Running SAM2 segmentation...');
+      
+      try {
+        // Get image data from canvas
+        const canvas = document.createElement('canvas');
+        canvas.width = image.width;
+        canvas.height = image.height;
+        const ctx = canvas.getContext('2d')!;
+        ctx.drawImage(image, 0, 0);
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
         
-        // Set processing state
-        setProcessing(true, 'Segmenting with SAM2...');
-        toast.info('Starting SAM2 segmentation...');
+        // Import segmentation service
+        const { segmentationService } = await import('@/services/aiService');
         
-        try {
-          // Get image data from canvas
-          const canvas = document.createElement('canvas');
-          canvas.width = image.width;
-          canvas.height = image.height;
-          const ctx = canvas.getContext('2d')!;
-          ctx.drawImage(image, 0, 0);
-          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-          
-          // Adjust click position for scale and offset
-          const adjustedPos = {
-            x: Math.round((pos.x - position.x) / scale),
-            y: Math.round((pos.y - position.y) / scale)
-          };
-          
-          // Ensure position is within bounds
-          adjustedPos.x = Math.max(0, Math.min(adjustedPos.x, image.width - 1));
-          adjustedPos.y = Math.max(0, Math.min(adjustedPos.y, image.height - 1));
-          
-          // Import segmentation service
-          const { segmentationService } = await import('@/services/aiService');
-          
-          // Perform segmentation
-          const maskData = await segmentationService.segmentWithSAM2(imageData, adjustedPos, {
+        // Perform segmentation with multiple points
+        const positivePoints = samPoints.filter(p => p.type === 'positive');
+        const negativePoints = samPoints.filter(p => p.type === 'negative');
+        
+        const maskData = await segmentationService.segmentWithSAM2(
+          imageData, 
+          positivePoints[0], // Use first positive point as primary
+          {
             threshold: 0.15,
             dilate: 3,
-            includeEdges: true
-          });
-          
-          // Store mask for future use
-          setMask(maskData);
-          
-          // Create mask overlay and add as layer
-          const maskCanvas = document.createElement('canvas');
-          maskCanvas.width = maskData.width;
-          maskCanvas.height = maskData.height;
-          const maskCtx = maskCanvas.getContext('2d')!;
-          maskCtx.putImageData(maskData, 0, 0);
-          
-          // Add as new layer
-          addLayer({
-            name: 'SAM2 Mask',
-            thumbnail: maskCanvas.toDataURL(),
-            imageData: maskData
-          });
-          
-          toast.success('Object segmented successfully!');
-          console.log('SAM2 segmentation completed');
-          
-        } catch (error) {
-          console.error('SAM2 segmentation failed:', error);
-          toast.error('Segmentation failed. Please try again.');
-        } finally {
-          setProcessing(false);
+            includeEdges: true,
+            positivePoints,
+            negativePoints
+          }
+        );
+        
+        // Store mask for future use
+        setMask(maskData);
+        
+        // Create segmented layer (selected area)
+        const segmentCanvas = document.createElement('canvas');
+        segmentCanvas.width = image.width;
+        segmentCanvas.height = image.height;
+        const segmentCtx = segmentCanvas.getContext('2d')!;
+        
+        // Draw original image
+        segmentCtx.drawImage(image, 0, 0);
+        
+        // Apply mask to create transparency
+        const segmentImageData = segmentCtx.getImageData(0, 0, image.width, image.height);
+        for (let i = 0; i < maskData.data.length; i += 4) {
+          if (maskData.data[i] === 0) { // Black pixels in mask = transparent
+            segmentImageData.data[i * 4 + 3] = 0; // Set alpha to 0
+          }
         }
+        segmentCtx.putImageData(segmentImageData, 0, 0);
+        
+        // Create background layer (everything except selected)
+        const backgroundCanvas = document.createElement('canvas');
+        backgroundCanvas.width = image.width;
+        backgroundCanvas.height = image.height;
+        const backgroundCtx = backgroundCanvas.getContext('2d')!;
+        
+        // Draw original image
+        backgroundCtx.drawImage(image, 0, 0);
+        
+        // Apply inverted mask
+        const backgroundImageData = backgroundCtx.getImageData(0, 0, image.width, image.height);
+        for (let i = 0; i < maskData.data.length; i += 4) {
+          if (maskData.data[i] > 0) { // White pixels in mask = transparent in background
+            backgroundImageData.data[i * 4 + 3] = 0; // Set alpha to 0
+          }
+        }
+        backgroundCtx.putImageData(backgroundImageData, 0, 0);
+        
+        // Convert to ImageData for storage
+        const segmentData = segmentCtx.getImageData(0, 0, image.width, image.height);
+        const backgroundData = backgroundCtx.getImageData(0, 0, image.width, image.height);
+        
+        // Remove background layer and add new separated layers
+        const bgLayer = layers.find(l => l.id === 'background');
+        if (bgLayer) {
+          removeLayer('background');
+        }
+        
+        // Add background layer (everything except selection)
+        addLayer({
+          name: 'Background (Unselected)',
+          thumbnail: backgroundCanvas.toDataURL(),
+          imageData: backgroundData
+        });
+        
+        // Add segmented layer (selection)
+        addLayer({
+          name: 'Selected Object',
+          thumbnail: segmentCanvas.toDataURL(),
+          imageData: segmentData
+        });
+        
+        // Clear points after successful segmentation
+        setSamPoints([]);
+        
+        toast.success('Object segmented and separated into layers!');
+        console.log('SAM2 segmentation completed');
+        
+      } catch (error) {
+        console.error('SAM2 segmentation failed:', error);
+        toast.error('Segmentation failed. Please try again.');
+      } finally {
+        setProcessing(false);
       }
     }
+  };
+
+  const clearSamPoints = () => {
+    setSamPoints([]);
+    toast.info('Cleared all SAM2 points');
   };
 
   return (
@@ -195,6 +322,16 @@ export const Canvas = forwardRef<CanvasRef, CanvasProps>(({
         >
           <RotateCcw className="w-4 h-4" />
         </Button>
+        {samPoints.length > 0 && (
+          <Button
+            variant="destructive"
+            size="sm"
+            onClick={clearSamPoints}
+            className="bg-panel-bg/80 backdrop-blur-sm border-panel-border hover:shadow-glow-accent"
+          >
+            Clear Points ({samPoints.length})
+          </Button>
+        )}
       </motion.div>
 
       {/* Zoom Level Indicator */}
@@ -237,14 +374,53 @@ export const Canvas = forwardRef<CanvasRef, CanvasProps>(({
               fill="rgba(255,255,255,0.05)"
             />
             
-            {/* Main Image */}
-            {image && (
-              <KonvaImage
-                image={image}
-                width={image.width}
-                height={image.height}
+            {/* Render Layers in Order */}
+            {layers.map((layer) => {
+              if (!layer.visible) return null;
+              
+              if (layer.id === 'background' && image) {
+                return (
+                  <KonvaImage
+                    key={layer.id}
+                    image={image}
+                    width={image.width}
+                    height={image.height}
+                    opacity={layer.opacity / 100}
+                    globalCompositeOperation={layer.blendMode as GlobalCompositeOperation}
+                  />
+                );
+              }
+              
+              const layerImage = layerImages[layer.id];
+              if (layerImage) {
+                return (
+                  <KonvaImage
+                    key={layer.id}
+                    image={layerImage}
+                    width={layerImage.width}
+                    height={layerImage.height}
+                    opacity={layer.opacity / 100}
+                    globalCompositeOperation={layer.blendMode as GlobalCompositeOperation}
+                  />
+                );
+              }
+              
+              return null;
+            })}
+            
+            {/* SAM2 Points Overlay */}
+            {samPoints.map((point, index) => (
+              <Circle
+                key={index}
+                x={point.x}
+                y={point.y}
+                radius={8}
+                fill={point.type === 'positive' ? '#10B981' : '#EF4444'}
+                stroke={point.type === 'positive' ? '#059669' : '#DC2626'}
+                strokeWidth={2}
+                opacity={0.8}
               />
-            )}
+            ))}
           </Layer>
         </Stage>
       </div>
