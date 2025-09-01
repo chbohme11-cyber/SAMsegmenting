@@ -261,11 +261,24 @@ export class SegmentationService {
 
   async initializeSAM2(): Promise<void> {
     try {
-      console.log('SAM2 initialized successfully (using advanced algorithms)');
-      // We'll use our advanced algorithmic approach instead of HuggingFace transformers
-      // since SAM models aren't properly supported yet in the browser
+      const { pipeline, env } = await import('@huggingface/transformers');
+      
+      // Configure for WebGPU if available, fallback to WASM
+      env.backends.onnx.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.14.0/dist/';
+      
+      this.model = await pipeline(
+        'image-segmentation',
+        'facebook/sam-vit-base',
+        { 
+          device: 'webgpu',
+          dtype: 'fp32'
+        }
+      );
+      
+      console.log('SAM2 model initialized successfully');
     } catch (error) {
-      console.warn('SAM2 initialization warning:', error);
+      console.warn('WebGPU not available, falling back to advanced algorithms:', error);
+      // Fallback to advanced algorithmic implementation
     }
   }
 
@@ -276,86 +289,58 @@ export class SegmentationService {
       includeEdges?: boolean;
       threshold?: number;
       dilate?: number;
-      positivePoints?: Array<{ x: number; y: number; type: string }>;
-      negativePoints?: Array<{ x: number; y: number; type: string }>;
     } = {}
   ): Promise<ImageData> {
     const { includeEdges = true, threshold = 0.5, dilate = 2 } = options;
 
-    // Use advanced algorithmic segmentation - works better than HF transformers for SAM
-    return this.advancedSmartSegmentation(imageData, clickPoint, options);
+    if (!this.model) {
+      // Advanced fallback implementation using edge detection and flood fill
+      return this.advancedFallbackSegmentation(imageData, clickPoint, options);
+    }
+
+    try {
+      // Convert ImageData to canvas for processing
+      const canvas = document.createElement('canvas');
+      canvas.width = imageData.width;
+      canvas.height = imageData.height;
+      const ctx = canvas.getContext('2d')!;
+      ctx.putImageData(imageData, 0, 0);
+
+      // Use SAM2 model for segmentation
+      const result = await this.model(canvas.toDataURL(), {
+        points: [[clickPoint.x, clickPoint.y]],
+        labels: [1], // foreground point
+      });
+
+      // Convert result to ImageData mask
+      return this.processSAMResult(result, imageData.width, imageData.height, dilate);
+    } catch (error) {
+      console.error('SAM2 segmentation failed, using fallback:', error);
+      return this.advancedFallbackSegmentation(imageData, clickPoint, options);
+    }
   }
 
-  private async advancedSmartSegmentation(
+  private async advancedFallbackSegmentation(
     imageData: ImageData,
     clickPoint: { x: number; y: number },
-    options: { 
-      includeEdges?: boolean; 
-      threshold?: number; 
-      dilate?: number;
-      positivePoints?: Array<{ x: number; y: number; type: string }>;
-      negativePoints?: Array<{ x: number; y: number; type: string }>;
-    }
+    options: { includeEdges?: boolean; threshold?: number; dilate?: number }
   ): Promise<ImageData> {
-    const { includeEdges = true, threshold = 0.15, dilate = 3 } = options;
+    const { includeEdges = true, threshold = 0.1, dilate = 2 } = options;
     const { width, height, data } = imageData;
     const mask = new ImageData(width, height);
 
-    // Multi-point segmentation - use all positive points to build the mask
-    const positivePoints = options.positivePoints || [{ x: clickPoint.x, y: clickPoint.y, type: 'positive' }];
-    const negativePoints = options.negativePoints || [];
-
-    // Create initial mask from positive points
-    const regions = new Set<string>();
-    
-    for (const point of positivePoints) {
-      const newRegions = this.smartFloodFill(data, width, height, point, threshold * 0.8);
-      newRegions.forEach(region => regions.add(region));
-    }
-
-    // Remove regions that overlap with negative points
-    for (const negPoint of negativePoints) {
-      const negativeRegions = this.smartFloodFill(data, width, height, negPoint, threshold * 0.6);
-      negativeRegions.forEach(region => regions.delete(region));
-    }
-
-    // Apply regions to mask
-    regions.forEach(regionKey => {
-      const [x, y] = regionKey.split(',').map(Number);
-      const idx = (y * width + x) * 4;
-      mask.data[idx] = 255;     // White mask
-      mask.data[idx + 1] = 255;
-      mask.data[idx + 2] = 255;
-      mask.data[idx + 3] = 255;
-    });
-
-    // Apply dilation if specified
-    if (dilate > 0) {
-      return this.dilateMask(mask, dilate);
-    }
-
-    return dilate > 0 ? this.dilateMask(mask, dilate) : mask;
-  }
-
-  private smartFloodFill(
-    data: Uint8ClampedArray, 
-    width: number, 
-    height: number, 
-    point: { x: number; y: number }, 
-    threshold: number
-  ): Set<string> {
-    const regions = new Set<string>();
-    const visited = new Set<string>();
-    const queue = [{ x: point.x, y: point.y }];
-
-    // Get target color
-    const targetIdx = (point.y * width + point.x) * 4;
+    // Get target color at click point
+    const targetIdx = (clickPoint.y * width + clickPoint.x) * 4;
     const targetR = data[targetIdx];
     const targetG = data[targetIdx + 1];
     const targetB = data[targetIdx + 2];
 
+    // Flood fill with color similarity
+    const visited = new Set<string>();
+    const queue = [{ x: clickPoint.x, y: clickPoint.y }];
+
     const colorDistance = (r1: number, g1: number, b1: number, r2: number, g2: number, b2: number) => {
-      return Math.sqrt((r1 - r2) ** 2 + (g1 - g2) ** 2 + (b1 - b2) ** 2) / 255;
+      return Math.sqrt((r1 - r2) ** 2 + (g1 - g2) ** 2 + (b1 - b2) ** 2);
     };
 
     while (queue.length > 0) {
@@ -370,21 +355,27 @@ export class SegmentationService {
       const g = data[idx + 1];
       const b = data[idx + 2];
 
-      const distance = colorDistance(r, g, b, targetR, targetG, targetB);
+      const distance = colorDistance(r, g, b, targetR, targetG, targetB) / 255;
       
       if (distance <= threshold) {
-        regions.add(key);
-        
-        // Add neighbors with adaptive threshold
-        const neighbors = [
-          { x: x + 1, y }, { x: x - 1, y }, 
-          { x, y: y + 1 }, { x, y: y - 1 }
-        ];
-        queue.push(...neighbors);
+        // Mark as selected
+        const maskIdx = idx;
+        mask.data[maskIdx] = 255;     // R
+        mask.data[maskIdx + 1] = 100; // G
+        mask.data[maskIdx + 2] = 255; // B  
+        mask.data[maskIdx + 3] = 180; // A
+
+        // Add neighbors to queue
+        queue.push({ x: x + 1, y }, { x: x - 1, y }, { x, y: y + 1 }, { x, y: y - 1 });
       }
     }
 
-    return regions;
+    // Apply dilation if specified
+    if (dilate > 0) {
+      return this.dilateMask(mask, dilate);
+    }
+
+    return mask;
   }
 
   private processSAMResult(result: any, width: number, height: number, dilate: number): ImageData {
