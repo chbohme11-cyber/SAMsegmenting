@@ -30,14 +30,14 @@ export const Canvas = forwardRef<CanvasRef, CanvasProps>(({
   const [scale, setScale] = useState(1);
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const [samPoints, setSamPoints] = useState<{x: number, y: number, type: 'positive' | 'negative'}[]>([]);
-  const { 
-    setProcessing, 
-    setMask, 
-    addLayer, 
-    layers, 
-    activeLayerId, 
+  const {
+    setProcessing,
+    setMask,
+    addLayer,
+    layers,
+    activeLayerId,
     updateLayer,
-    removeLayer 
+    removeLayer
   } = useEditorStore();
 
   useImperativeHandle(ref, () => ({
@@ -62,7 +62,7 @@ export const Canvas = forwardRef<CanvasRef, CanvasProps>(({
 
     handleResize();
     window.addEventListener('resize', handleResize);
-    
+
     // Initialize SAM2 when component mounts
     const initializeSAM2 = async () => {
       try {
@@ -74,7 +74,7 @@ export const Canvas = forwardRef<CanvasRef, CanvasProps>(({
       }
     };
     initializeSAM2();
-    
+
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
@@ -101,7 +101,7 @@ export const Canvas = forwardRef<CanvasRef, CanvasProps>(({
   useEffect(() => {
     const loadLayerImages = async () => {
       const newLayerImages: {[key: string]: HTMLImageElement} = {};
-      
+
       for (const layer of layers) {
         if (layer.imageData) {
           // Convert ImageData to canvas then to image
@@ -110,7 +110,7 @@ export const Canvas = forwardRef<CanvasRef, CanvasProps>(({
           canvas.height = layer.imageData.height;
           const ctx = canvas.getContext('2d')!;
           ctx.putImageData(layer.imageData, 0, 0);
-          
+
           const img = new window.Image();
           await new Promise((resolve) => {
             img.onload = resolve;
@@ -126,10 +126,10 @@ export const Canvas = forwardRef<CanvasRef, CanvasProps>(({
           newLayerImages[layer.id] = img;
         }
       }
-      
+
       setLayerImages(newLayerImages);
     };
-    
+
     loadLayerImages();
   }, [layers]);
 
@@ -149,7 +149,7 @@ export const Canvas = forwardRef<CanvasRef, CanvasProps>(({
       x: Math.round((pos.x - position.x) / scale),
       y: Math.round((pos.y - position.y) / scale)
     };
-    
+
     // Ensure position is within bounds
     adjustedPos.x = Math.max(0, Math.min(adjustedPos.x, image.width - 1));
     adjustedPos.y = Math.max(0, Math.min(adjustedPos.y, image.height - 1));
@@ -158,27 +158,27 @@ export const Canvas = forwardRef<CanvasRef, CanvasProps>(({
       // Add point for SAM2 segmentation
       const isShiftPressed = e.evt.shiftKey;
       const pointType = isShiftPressed ? 'negative' : 'positive';
-      
-      setSamPoints(prev => [...prev, { 
-        x: adjustedPos.x, 
-        y: adjustedPos.y, 
-        type: pointType 
+
+      setSamPoints(prev => [...prev, {
+        x: adjustedPos.x,
+        y: adjustedPos.y,
+        type: pointType
       }]);
-      
+
       toast.info(`Added ${pointType} point. ${isShiftPressed ? 'Shift+' : ''}Click to add points, then run segmentation.`);
-      
+
     } else if (selectedTool === 'sam2-run') {
       if (samPoints.length === 0) {
         toast.error('Please add some points first by using the SAM2 Segment tool.');
         return;
       }
-      
+
       console.log('Running SAM2 segmentation with points:', samPoints);
-      
+
       // Set processing state
       setProcessing(true, 'Segmenting with SAM2...');
       toast.info('Running SAM2 segmentation...');
-      
+
       try {
         // Get image data from canvas
         const canvas = document.createElement('canvas');
@@ -187,16 +187,16 @@ export const Canvas = forwardRef<CanvasRef, CanvasProps>(({
         const ctx = canvas.getContext('2d')!;
         ctx.drawImage(image, 0, 0);
         const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        
+
         // Import segmentation service
         const { segmentationService } = await import('@/services/aiService');
-        
+
         // Perform segmentation with multiple points
         const positivePoints = samPoints.filter(p => p.type === 'positive');
         const negativePoints = samPoints.filter(p => p.type === 'negative');
-        
+
         const maskData = await segmentationService.segmentWithSAM2(
-          imageData, 
+          imageData,
           positivePoints[0], // Use first positive point as primary
           {
             threshold: 0.15,
@@ -206,19 +206,19 @@ export const Canvas = forwardRef<CanvasRef, CanvasProps>(({
             negativePoints
           }
         );
-        
+
         // Store mask for future use
         setMask(maskData);
-        
+
         // Create segmented layer (selected area)
         const segmentCanvas = document.createElement('canvas');
         segmentCanvas.width = image.width;
         segmentCanvas.height = image.height;
         const segmentCtx = segmentCanvas.getContext('2d')!;
-        
+
         // Draw original image
         segmentCtx.drawImage(image, 0, 0);
-        
+
         // Apply mask to create transparency
         const segmentImageData = segmentCtx.getImageData(0, 0, image.width, image.height);
         for (let i = 0; i < maskData.data.length; i += 4) {
@@ -227,16 +227,16 @@ export const Canvas = forwardRef<CanvasRef, CanvasProps>(({
           }
         }
         segmentCtx.putImageData(segmentImageData, 0, 0);
-        
+
         // Create background layer (everything except selected)
         const backgroundCanvas = document.createElement('canvas');
         backgroundCanvas.width = image.width;
         backgroundCanvas.height = image.height;
         const backgroundCtx = backgroundCanvas.getContext('2d')!;
-        
+
         // Draw original image
         backgroundCtx.drawImage(image, 0, 0);
-        
+
         // Apply inverted mask
         const backgroundImageData = backgroundCtx.getImageData(0, 0, image.width, image.height);
         for (let i = 0; i < maskData.data.length; i += 4) {
@@ -245,37 +245,37 @@ export const Canvas = forwardRef<CanvasRef, CanvasProps>(({
           }
         }
         backgroundCtx.putImageData(backgroundImageData, 0, 0);
-        
+
         // Convert to ImageData for storage
         const segmentData = segmentCtx.getImageData(0, 0, image.width, image.height);
         const backgroundData = backgroundCtx.getImageData(0, 0, image.width, image.height);
-        
+
         // Remove background layer and add new separated layers
         const bgLayer = layers.find(l => l.id === 'background');
         if (bgLayer) {
           removeLayer('background');
         }
-        
+
         // Add background layer (everything except selection)
         addLayer({
           name: 'Background (Unselected)',
           thumbnail: backgroundCanvas.toDataURL(),
           imageData: backgroundData
         });
-        
+
         // Add segmented layer (selection)
         addLayer({
           name: 'Selected Object',
           thumbnail: segmentCanvas.toDataURL(),
           imageData: segmentData
         });
-        
+
         // Clear points after successful segmentation
         setSamPoints([]);
-        
+
         toast.success('Object segmented and separated into layers!');
         console.log('SAM2 segmentation completed');
-        
+
       } catch (error) {
         console.error('SAM2 segmentation failed:', error);
         toast.error('Segmentation failed. Please try again.');
@@ -373,11 +373,11 @@ export const Canvas = forwardRef<CanvasRef, CanvasProps>(({
               y={-position.y / scale}
               fill="rgba(255,255,255,0.05)"
             />
-            
+
             {/* Render Layers in Order */}
             {layers.map((layer) => {
               if (!layer.visible) return null;
-              
+
               if (layer.id === 'background' && image) {
                 return (
                   <KonvaImage
@@ -390,7 +390,7 @@ export const Canvas = forwardRef<CanvasRef, CanvasProps>(({
                   />
                 );
               }
-              
+
               const layerImage = layerImages[layer.id];
               if (layerImage) {
                 return (
@@ -404,10 +404,10 @@ export const Canvas = forwardRef<CanvasRef, CanvasProps>(({
                   />
                 );
               }
-              
+
               return null;
             })}
-            
+
             {/* SAM2 Points Overlay */}
             {samPoints.map((point, index) => (
               <Circle
